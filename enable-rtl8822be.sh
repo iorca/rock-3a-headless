@@ -100,9 +100,10 @@ EOF
 # ---------------------------------------------------------------------------
 # 5. Load now and make it stick
 # ---------------------------------------------------------------------------
-say "loading rtw_8822be"
-modprobe rtw_8822be || die "modprobe failed: $(modprobe -v rtw_8822be 2>&1 | tail -3)"
-grep -q '^rtw_8822be$' /etc/modules || echo 'rtw_8822be' >>/etc/modules
+# lwfinger/rtw88 builds rtw88_8822be.ko, NOT the in-tree name rtw_8822be.
+say "loading rtw88_8822be"
+modprobe rtw88_8822be || die "modprobe failed: $(modprobe -v rtw88_8822be 2>&1 | tail -3)"
+grep -q '^rtw88_8822be$' /etc/modules || echo 'rtw88_8822be' >>/etc/modules
 
 rfkill unblock all || true
 

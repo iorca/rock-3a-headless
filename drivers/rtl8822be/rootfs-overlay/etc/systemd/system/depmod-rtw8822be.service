@@ -1,0 +1,12 @@
+[Unit]
+Description=Rebuild module dependencies for RTL8822BE
+Before=systemd-modules-load.service
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/depmod -a
+
+[Install]
+WantedBy=sysinit.target

@@ -23,6 +23,11 @@ on:
         required: false
         default: false
         type: boolean
+      rtl8822be:
+        description: "Bake in the prebuilt RTL8822BE (rtw88) WiFi+BT driver"
+        required: false
+        default: true
+        type: boolean
       publish_release:
         description: "Also publish artifacts to a GitHub Release"
         required: false
@@ -62,9 +67,18 @@ jobs:
       - name: "Set up buildx"
         uses: "docker/setup-buildx-action@v3"
 
-      # Brings in: rsdk checkout (+submodules), KVM perms, QEMU binfmt, devcontainer warmup
+      # Brings in: rsdk checkout (+submodules), KVM perms, QEMU binfmt, devcontainer warmup.
+      # NOTE: its actions/checkout has no `path`, so it lands in the workspace root.
+      # Anything of ours must therefore be checked out into a SUBDIRECTORY, and
+      # only after this step.
       - name: "Setup rsdk"
         uses: "RadxaOS-SDK/rsdk/.github/actions/setup@main"
+
+      - name: "Checkout driver overlay"
+        if: "${{ inputs.rtl8822be }}"
+        uses: "actions/checkout@v7"
+        with:
+          path: "drivers-src"
 
       - name: "Build rootfs and image"
         uses: "devcontainers/ci@v0.3"
@@ -76,11 +90,24 @@ jobs:
             if [[ "${{ inputs.no_vendor_packages }}" == "true" ]]; then
               options+=("--no-vendor-packages")
             fi
+            build_args=( "${options[@]}"
+              --sector-size 512
+              --image-name "output_512.img"
+              "${{ env.PRODUCT }}" "${{ inputs.suite }}" "${{ inputs.edition }}" )
+
             src/bin/rsdk setup
-            src/bin/rsdk shell rsdk build "${options[@]}" \
-              --sector-size 512 \
-              --image-name "output_512.img" \
-              "${{ env.PRODUCT }}" "${{ inputs.suite }}" "${{ inputs.edition }}"
+            src/bin/rsdk shell rsdk build "${build_args[@]}"
+
+            # Pass 2: patch rootfs.tar, then rebuild the image only.
+            # rsdk-build main() skips generate_rootfs when rootfs.tar already
+            # exists, and always calls generate_image. See
+            # drivers/rtl8822be/inject-into-rootfs.sh for the exact source quote.
+            if [[ "${{ inputs.rtl8822be }}" == "true" ]]; then
+              OUT="out/${{ env.PRODUCT }}_${{ inputs.suite }}_${{ inputs.edition }}"
+              bash "drivers-src/drivers/rtl8822be/inject-into-rootfs.sh" \
+                "${OUT}" "drivers-src/drivers/rtl8822be/rootfs-overlay"
+              src/bin/rsdk shell rsdk build "${build_args[@]}"
+            fi
 
       - name: "Compress and checksum"
         id: "prep"
@@ -115,5 +142,6 @@ jobs:
 
             No X11 / Wayland session. Serial console and SSH are up out of the box.
             rsetup-config-first-boot runs on the first boot and creates your account.
+            ${{ inputs.rtl8822be && 'RTL8822BE (rtw88) WiFi+BT driver is baked in.' || 'No RTL8822BE driver (built without it).' }}
           files: "out/**/*"
           token: "${{ github.token }}"

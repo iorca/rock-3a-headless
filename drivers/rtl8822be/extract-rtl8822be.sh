@@ -47,19 +47,8 @@ for n in "${SEED_NAMES[@]}"; do
 done
 [[ ${#SEEDS[@]} -gt 0 ]] || die "loaded rtw88 modules have no .ko file under ${MODROOT}"
 
-# The top-level module is the one the user actually modprobes. lwfinger/rtw88
-# names it rtw88_8822be (NOT rtw_8822be - that is the mainline in-tree name and
-# it does not exist here). Pick it from the live lsmod output so the bundle can
-# never end up referencing a module name that is not on disk.
-TOP=""
-for n in "${SEED_NAMES[@]}"; do
-    [[ ${n} == *8822be* ]] && TOP="${n}" && break
-done
-[[ -n ${TOP} ]] || TOP="${SEED_NAMES[0]}"
-say "top-level module: ${TOP}"
-
 # Walk the dependency closure so we never ship a top-level module alone
-# (rtw88_8822be needs rtw88_8822b + rtw88_pci + rtw88_core).
+# (rtw_8822be needs rtw88_8822b + rtw88_pci + rtw88_core).
 declare -A SEEN=()
 queue=("${SEEDS[@]}")
 while [[ ${#queue[@]} -gt 0 ]]; do
@@ -108,8 +97,8 @@ install -Dm644 /dev/stdin "${BUNDLE}/payload/etc/modprobe.d/blacklist-rtl8xxxu.c
 # RTL8822BE exposes Bluetooth over USB; rtl8xxxu grabs it and half-breaks it.
 blacklist rtl8xxxu
 EOF
-install -Dm644 /dev/stdin "${BUNDLE}/payload/etc/modules-load.d/rtl8822be.conf" <<EOF
-${TOP}
+install -Dm644 /dev/stdin "${BUNDLE}/payload/etc/modules-load.d/rtl8822be.conf" <<'EOF'
+rtw_8822be
 EOF
 
 # ---------------------------------------------------------------------------
@@ -149,7 +138,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 cp -a "${HERE}/payload/." /
 depmod -a "${KVER}"
 systemctl enable depmod-rtw8822be.service
-modprobe rtw88_8822be
+modprobe rtw_8822be
 rfkill unblock all 2>/dev/null || true
 
 echo

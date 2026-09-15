@@ -1,5 +1,21 @@
 name: Solidify RTL8822BE into the headless image
-status: ready-to-run
+status: DONE - 阶段 1/2/3 已于 2026-09-15 落地，见下方「现状」
+
+---
+
+## 现状（2026-09-15）
+
+| 项 | 结果 |
+| --- | --- |
+| 源机 | 刷好 cli 镜像的开发板 `192.168.1.103`，`uname-r = 6.1.84-**17**-rk2410-nocsf` |
+| 版本对齐 | **已对齐**。源机就是目标镜像本身，第 0 节的 -15/-17 地雷已经不存在 |
+| 提取产物 | `drivers/rtl8822be/rootfs-overlay/`（4 个 `.ko.xz` + 3 个 firmware + 3 个配置） |
+| 入库 | `drivers/rtl8822be/inject-into-rootfs.sh` |
+| CI | `.github/workflows/build-cli.yml` 增加 `rtl8822be` input（默认 true），二段构建注入 |
+
+踩过的坑（都已修，别再踩）：
+1. `find -name 'rtw*.ko*'` 会把无关的 **rtw89** 家族一起收进来（板上有 DKMS 装的 `updates/dkms/rtw89_*_git.ko.xz`），一度收了 20 个模块。改成从 `lsmod` 取 `^rtw88` 前缀作种子。
+2. lwfinger/rtw88 的顶层模块叫 **`rtw88_8822be`**，不是主线内核里的 `rtw_8822be`。写成后者 `modules-load.d` 会永久加载失败。
 
 ---
 
