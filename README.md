@@ -130,3 +130,67 @@ rsdk build rock-3a bookworm cli
 最终执行的就是 `rsdk build rock-3a bookworm cli`，**能编过**。
 
 不推荐它的原因：`prepare_release` 依赖外部 `radxa-repo/rbuild-changelog@main`（第三方 action，随时可能挂），并且会占用 `rsdk-r<N>` tag 命名空间 —— 你不是 Radxa，没必要。
+
+---
+
+## 刷机：能不能直接跑
+
+**能。** `output_512.img` 是整盘镜像，SD 卡写进去上电就走，**不需要 RKDevTool / maskrom**。
+
+源码依据（均在 `RadxaOS-SDK/rsdk` 里）：
+
+- `src/share/rsdk/configs/socs.json`：`rk3568` → `firmware_type: "u-boot"`、`partition_table_type: "gpt"`
+- `build/mod/packages/categories/core.libjsonnet`：只有 `product_firmware_type(product) == "edk2"` 才装 systemd-boot —— rock-3a 命中 else 分支，跳过
+- `build/rootfs.jsonnet`：`chroot "$1" sh -c "u-boot-update"` → U-Boot extlinux 引导
+
+所以链路是 GPT 分区 + 镜像头部的 U-Boot idbloader + `/boot` 上的 extlinux.conf，`dd` 或 Etcher 整盘写即可。
+
+**三个前提：**
+
+1. **首次启动必须接串口（或 HDMI + 键盘）**。`core`/`cli` 镜像都带 `rsetup-config-first-boot`，首个 boot 走交互向导创建账号；走完之前**没有可用账号，SSH 连不上**。这是 headless 场景唯一的坑。
+2. SD 卡 ≥ 16GB。`cloud-initramfs-growroot` 会在首启自动扩根分区。
+3. 想直接写 eMMC：先用 SD 卡起系统，再 `rsetup` → Install to eMMC；或走 maskrom + RKDevTool。
+
+---
+
+## RTL8822BE：内核里没有这个驱动
+
+**确定结论：刷完直接没网。**
+
+我把 Radxa 的内核 deb 拉下来读了它的 config：
+
+```
+pool/main/l/linux-upstream/linux-image-6.1.84-17-rk2410-nocsf_6.1.84-17_arm64.deb
+  ./boot/config-6.1.84-17-rk2410-nocsf
+
+  # CONFIG_RTW88 is not set      ← rtw88 整个家族没编
+  CONFIG_RTW89=m                  ← 只有更新的 RTW89 家族
+```
+
+RTL8822BE 属于 **rtw88** 家族（模块名 `rtw_8822be`），不是 RTW89，所以内核里没有这个模块。
+
+| 需要的 | 状态 |
+| --- | --- |
+| WiFi / BT firmware（`rtw8822b_fw.bin`、`rtl8822b_fw.bin`） | ✅ 镜像里已有，`core` 包列表就含 `firmware-realtek` |
+| 内核模块 `rtw_8822be` | ❌ 内核没编译 |
+| Debian 现成 DKMS 包 | ❌ `sources.debian.org` 查无 `rtw88-dkms`（bookworm / trixie / sid 都没有） |
+
+所以：**必须自己编译。**
+
+### 板上编译（推荐，先验证硬件）
+
+先插网线——WiFi 正是不能用的那个。然后：
+
+```bash
+sudo ./enable-rtl8822be.sh
+```
+
+脚本做的事：装 `linux-headers-$(uname -r)` → clone `lwfinger/rtw88` → `make KSRC=/lib/modules/$KVER/build` → `make install` → `depmod` → 拉黑会抢 USB 蓝牙端的 `rtl8xxxu` → `modprobe rtw_8822be` 并写进 `/etc/modules`。
+
+跑完用 `nmtui` 配 WiFi、`bluetoothctl` 配蓝牙。
+
+### 想把它做进镜像
+
+rsdk 的 rootfs 包列表写在它自己的 jsonnet 里（`build/mod/packages/categories/base.libjsonnet`），`rsdk build` 命令行没有 `--include` 之类的口子。要进镜像只能 **fork rsdk、改 jsonnet**，再把 workflow 里的 `RadxaOS-SDK/rsdk/.github/actions/setup@main` 换成你的 fork。
+
+代价：多维护一个 rsdk fork（要跟上游同步）。收益：刷完就有网。
