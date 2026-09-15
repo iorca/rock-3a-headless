@@ -1,0 +1,116 @@
+name: "Build ROCK 3A CLI image (headless, no desktop)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Debian suite"
+        required: true
+        default: "bookworm"
+        type: choice
+        options:
+          - "bookworm"
+      edition:
+        description: "rsdk edition: cli = base packages only, core = absolute minimum"
+        required: true
+        default: "cli"
+        type: choice
+        options:
+          - "cli"
+          - "core"
+      no_vendor_packages:
+        description: "Skip recommended vendor packages (task-rock-3a, smaller image)"
+        required: false
+        default: false
+        type: boolean
+      publish_release:
+        description: "Also publish artifacts to a GitHub Release"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  PRODUCT: "rock-3a"
+  GH_TOKEN: "${{ github.token }}"
+
+jobs:
+  build:
+    runs-on: "ubuntu-latest"
+    timeout-minutes: 360
+    steps:
+      - name: "Free disk space"
+        run: |
+          set -euo pipefail
+          df -h
+          sudo rm -rf \
+            /opt/hostedtoolcache \
+            /opt/az \
+            /opt/microsoft \
+            /usr/local/lib/android \
+            /usr/lib/jvm \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            /usr/local/share/powershell \
+            /usr/share/miniconda || true
+          sudo apt-get clean
+          docker system prune -a -f || true
+          df -h
+
+      # Brings in: rsdk checkout (+submodules), KVM perms, QEMU binfmt, devcontainer warmup
+      - name: "Setup rsdk"
+        uses: "RadxaOS-SDK/rsdk/.github/actions/setup@main"
+
+      - name: "Build rootfs and image"
+        uses: "devcontainers/ci@v0.3"
+        with:
+          push: "never"
+          runCmd: |
+            set -euo pipefail
+            options=()
+            if [[ "${{ inputs.no_vendor_packages }}" == "true" ]]; then
+              options+=("--no-vendor-packages")
+            fi
+            src/bin/rsdk setup
+            src/bin/rsdk shell rsdk build "${options[@]}" \
+              --sector-size 512 \
+              --image-name "output_512.img" \
+              "${{ env.PRODUCT }}" "${{ inputs.suite }}" "${{ inputs.edition }}"
+
+      - name: "Compress and checksum"
+        id: "prep"
+        run: |
+          set -euo pipefail
+          sudo chown -R "$USER:$(id -gn)" out
+          cd "out/${{ env.PRODUCT }}_${{ inputs.suite }}_${{ inputs.edition }}"
+          TUPLE="$(basename "$(pwd)")"
+          echo "tuple=${TUPLE}" >> "$GITHUB_OUTPUT"
+          for f in output_512.img rootfs.tar; do
+            if [[ -f "$f" ]]; then xz -vT 0 "$f"; fi
+          done
+          find . -maxdepth 1 -type f -exec sha512sum {} \; | tee "${TUPLE}.sha512sum"
+          ls -lh
+
+      - name: "Upload to Artifacts"
+        uses: "actions/upload-artifact@v7"
+        with:
+          name: "${{ env.PRODUCT }}-${{ inputs.suite }}-${{ inputs.edition }}"
+          path: "out/**/*"
+          retention-days: 7
+
+      - name: "Publish to Release"
+        if: "${{ inputs.publish_release }}"
+        uses: "softprops/action-gh-release@v3"
+        with:
+          tag_name: "${{ env.PRODUCT }}-${{ inputs.suite }}-${{ inputs.edition }}-r${{ github.run_number }}"
+          name: "${{ env.PRODUCT }} ${{ inputs.suite }} ${{ inputs.edition }} (headless) r${{ github.run_number }}"
+          body: |
+            Headless image built with RadxaOS-SDK/rsdk.
+            Edition: `${{ inputs.edition }}` (no desktop environment).
+
+            No X11 / Wayland session. Serial console and SSH are up out of the box.
+            rsetup-config-first-boot runs on the first boot and creates your account.
+          files: "out/**/*"
+          token: "${{ github.token }}"
