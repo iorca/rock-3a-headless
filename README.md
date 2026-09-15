@@ -1,5 +1,10 @@
 # ROCK 3A —— 去桌面 + GitHub Actions 云端编译
 
+**仓库**：https://github.com/iorca/rock-3a-headless
+**构建日志**：https://github.com/iorca/rock-3a-headless/actions/workflows/build-cli.yml
+
+首次构建 run `#1` 已触发：`cli` edition / `bookworm` / 发布到 Release。
+
 ## 结论先行
 
 原仓库 `radxa-build/rock-3a` 只有 workflow，**不出命令行镜像**，原因在产品清单里：
