@@ -1,0 +1,22 @@
+# Keep generated scripts and driver payloads byte-safe across platforms.
+
+# Shell scripts must stay LF even when checked out on Windows:
+# a CRLF shebang breaks "#!/usr/bin/env bash".
+*.sh           text eol=lf
+
+# kmod/systemd parse these line-wise; stray CR silently breaks them.
+*.conf         text eol=lf
+*.service      text eol=lf
+*.rules        text eol=lf
+
+# Never let anything mangle these.
+*.ko           binary
+*.bin          binary
+*.xz           binary
+*.tar.gz       binary
+*.deb          binary
+
+# Docs are prose; keep LF so diffs stay clean.
+*.md           text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
