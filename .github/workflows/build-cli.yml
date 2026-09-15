@@ -41,12 +41,13 @@ jobs:
     runs-on: "ubuntu-latest"
     timeout-minutes: 360
     steps:
+      # Do NOT run "docker system prune -a": it deletes the image behind the
+      # buildx builder and leaves features/nix unable to write /nix/var/nix/db/big-lock.
       - name: "Free disk space"
         run: |
           set -euo pipefail
           df -h
           sudo rm -rf \
-            /opt/hostedtoolcache \
             /opt/az \
             /opt/microsoft \
             /usr/local/lib/android \
@@ -56,8 +57,10 @@ jobs:
             /usr/local/share/powershell \
             /usr/share/miniconda || true
           sudo apt-get clean
-          docker system prune -a -f || true
           df -h
+
+      - name: "Set up buildx"
+        uses: "docker/setup-buildx-action@v3"
 
       # Brings in: rsdk checkout (+submodules), KVM perms, QEMU binfmt, devcontainer warmup
       - name: "Setup rsdk"
